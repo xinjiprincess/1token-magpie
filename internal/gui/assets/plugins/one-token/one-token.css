@@ -1,0 +1,67 @@
+#view-one-token { max-width: 880px; margin: 0 auto; padding: 28px 28px 60px; }
+#ot-gate { position: fixed; inset: 0; z-index: 2147483000; display: grid; place-items: center; padding: 24px; overflow-y: auto; background: var(--bg); color: var(--fg); }
+#ot-gate[hidden] { display: none; }
+.ot-gate-card { width: min(460px, 100%); max-height: calc(100vh - 48px); overflow-y: auto; padding: 30px; border: 1px solid var(--line); border-radius: 20px; background: var(--card); box-shadow: 0 24px 70px rgba(0,0,0,.28); }
+.ot-gate-brand { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
+.ot-gate-brand img { width: 28px; height: 28px; }
+.ot-gate-card h1 { margin: 22px 0 8px; font-size: 25px; letter-spacing: -.03em; }
+.ot-gate-card > p { margin: 0 0 20px; color: var(--muted); line-height: 1.7; font-size: 14px; }
+.ot-gate-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.ot-gate-card button { cursor: pointer; border-radius: 10px; padding: 10px 16px; border: 1px solid var(--line); background: var(--card); color: var(--fg); font: inherit; }
+.ot-gate-card button.ot-primary { border-color: #6dbb56; background: #6dbb56; color: #0b1020; font-weight: 700; }
+.ot-gate-link { border: 0 !important; padding: 10px 0 !important; background: transparent !important; color: var(--muted) !important; text-align: left; }
+.ot-gate-paste { display: flex; gap: 8px; margin-top: 10px; }
+.ot-gate-paste input { min-width: 0; flex: 1; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); color: var(--fg); font: inherit; }
+.ot-gate-note { min-height: 22px; margin: 10px 0 0 !important; font-size: 13px !important; color: var(--muted); }
+.ot-gate-note.bad { color: #e88989; }
+@media(max-width: 520px) { .ot-gate-card { padding: 22px; } .ot-gate-actions { flex-direction: column; } }
+.brand .logo { position: relative; }
+.brand .logo > .tail { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.brand .logo.wag > .tail { animation: ot-tail-reset .25s linear; }
+@keyframes ot-tail-reset { from { opacity: 0; } to { opacity: 0; } }
+.ot-hero { padding: 30px; border: 1px solid var(--line); border-radius: 20px; background: linear-gradient(135deg, var(--card), var(--bg)); }
+.ot-brand { display: flex; align-items: center; gap: 12px; font-size: 25px; font-weight: 700; letter-spacing: -.03em; }
+.ot-brand img { width: 38px; height: 38px; }
+.ot-hero p, .ot-card p { color: var(--muted); line-height: 1.6; }
+.ot-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+.ot-actions button { cursor: pointer; border-radius: 10px; padding: 9px 16px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+.ot-actions .ot-primary { border-color: #6dbb56; background: #6dbb56; color: #0b1020; font-weight: 700; }
+.ot-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; margin-top: 16px; }
+.ot-card { border: 1px solid var(--line); border-radius: 16px; background: var(--card); padding: 20px; }
+.ot-card h2 { font-size: 15px; margin: 0 0 8px; }
+.ot-card strong { font-size: 23px; display: block; overflow-wrap: anywhere; }
+.ot-card p { margin: 8px 0 0; font-size: 13px; }
+.ot-chat { margin-top: 16px; border: 1px solid var(--line); border-radius: 16px; padding: 24px; background: var(--card); }
+.ot-chat h2 { margin: 0 0 8px; font-size: 19px; }
+.ot-chat p { color: var(--muted); margin: 0; line-height: 1.6; }
+.ot-model-list { display: grid; gap: 8px; margin-top: 16px; }
+.ot-model-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.ot-model-row strong { font-size: 14px; }
+.ot-model-row code { font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); overflow-wrap: anywhere; }
+.ot-model-row span { margin-left: auto; font-size: 12px; color: var(--muted); }
+.ot-model-empty { margin: 14px 0 0; font-size: 13px; color: var(--muted); }
+.ot-tools { margin-top: 16px; }
+.ot-tool-list { display: grid; gap: 8px; margin-top: 14px; }
+.ot-tool-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.ot-tool-row strong { font-size: 14px; }
+.ot-tool-row button, .ot-tool-later { cursor: pointer; border: 1px solid var(--line); border-radius: 9px; padding: 7px 13px; background: var(--card); color: var(--fg); }
+.ot-tool-row button:disabled { opacity: .6; cursor: wait; }
+.ot-tool-later { justify-self: start; margin-top: 2px; }
+@media(max-width: 620px) { #view-one-token { padding: 16px; } .ot-grid { grid-template-columns: 1fr; } }
+.ot-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.ot-badge { font-size: 12px; border: 1px solid var(--line); border-radius: 100px; padding: 4px 10px; color: var(--muted); white-space: nowrap; }
+.ot-hero .ot-updated { font-size: 12px; margin: 12px 0 0; min-height: 20px; }
+.ot-actions button:disabled { opacity: .6; cursor: wait; }
+.ot-shortcuts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.ot-shortcuts button { text-align: left; padding: 20px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; color: var(--fg); cursor: pointer; }
+.ot-shortcuts strong, .ot-shortcuts span { display: block; }
+.ot-shortcuts strong { margin-bottom: 8px; font-size: 14px; }
+.ot-shortcuts span { font-size: 12px; color: var(--muted); line-height: 1.6; }
+.ot-steps { margin-top: 24px; padding: 8px; }
+.ot-steps h2 { font-size: 16px; }
+.ot-steps ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; padding-left: 24px; }
+.ot-steps li { font-size: 13px; padding-left: 4px; }
+.ot-steps li span { display: block; color: var(--muted); line-height: 1.6; margin-top: 6px; }
+.ot-steps > button { border: 0; padding: 6px 0; color: var(--fg); background: none; cursor: pointer; font-size: 13px; }
+#view-one-token button:focus-visible { outline: 2px solid #6dbb56; outline-offset: 3px; }
+@media(max-width: 620px) { .ot-shortcuts, .ot-steps ol { grid-template-columns: 1fr; } .ot-hero { padding: 20px; } .ot-brand { font-size: 22px; } .ot-steps ol { gap: 16px; } }

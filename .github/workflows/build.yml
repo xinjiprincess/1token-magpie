@@ -1,0 +1,64 @@
+name: build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install GTK and WebKitGTK
+        timeout-minutes: 15
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Build
+        run: make build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 1token_magpie-linux-amd64
+          path: magpie
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build Windows app
+        shell: bash
+        run: |
+          go run github.com/tc-hib/go-winres@v0.3.3 make \
+            --in build/windows/winres.json --arch amd64 --out rsrc \
+            --file-version 0.1.2438 --product-version 0.1.2438
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build \
+            -trimpath -buildvcs=false -ldflags="-s -w" \
+            -o dist/magpie-windows-amd64.com ./internal/update/launcher
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build \
+            -tags production,comlauncher -trimpath -buildvcs=false \
+            -ldflags="-s -w -H windowsgui -X main.version=0.1.2438+1token.20261109" \
+            -o dist/magpie-windows-amd64.exe .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 1token_magpie-windows-amd64
+          path: dist
+          if-no-files-found: error

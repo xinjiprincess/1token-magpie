@@ -1,0 +1,21 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Gofmt
+        run: |
+          bad=$(gofmt -l $(git ls-files '*.go'))
+          if [ -n "$bad" ]; then echo "not gofmt'd:"; echo "$bad"; exit 1; fi
+
+      - name: Test without GUI
+        timeout-minutes: 40
+        run: go test -timeout 35m -tags nogui ./...
