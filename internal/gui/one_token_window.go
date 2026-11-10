@@ -25,12 +25,12 @@ func (h *host) OpenLoginWindow(link string) error {
 			oneTokenWindow = nil
 		}
 		win := h.app.Window.NewWithOptions(application.WebviewWindowOptions{
-			URL:         link,
-			Title:       "登录 1token",
-			Width:       520,
-			Height:      760,
-			MinWidth:    420,
-			MinHeight:   600,
+			URL:           link,
+			Title:         "登录 1token",
+			Width:         520,
+			Height:        760,
+			MinWidth:      420,
+			MinHeight:     600,
 			DisableResize: false,
 		})
 		win.Show()
