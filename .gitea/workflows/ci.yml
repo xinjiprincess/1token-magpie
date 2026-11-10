@@ -18,4 +18,6 @@ jobs:
 
       - name: Test without GUI
         timeout-minutes: 40
+        env:
+          CGO_ENABLED: "0"
         run: go test -timeout 35m -tags nogui ./...
