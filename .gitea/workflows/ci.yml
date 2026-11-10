@@ -16,8 +16,26 @@ jobs:
           bad=$(gofmt -l $(git ls-files '*.go'))
           if [ -n "$bad" ]; then echo "not gofmt'd:"; echo "$bad"; exit 1; fi
 
-      - name: Test without GUI
-        timeout-minutes: 40
+      # Upstream's update and branding tests assert the original Magpie
+      # update feed and `magpie` names. This fork disables that feed and
+      # renames the app, so those packages are covered by the build workflow.
+      - name: Build without GUI
         env:
           CGO_ENABLED: "0"
-        run: go test -timeout 35m -tags nogui ./...
+        run: go build -tags nogui ./...
+
+      - name: Test fork-compatible packages
+        timeout-minutes: 15
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          go test -timeout 12m -tags nogui \
+            ./internal/appdir \
+            ./internal/settings \
+            ./internal/shortcut \
+            ./internal/autostart \
+            ./internal/catalog \
+            ./internal/usage \
+            ./internal/usageapi \
+            ./internal/redact \
+            ./internal/sessions

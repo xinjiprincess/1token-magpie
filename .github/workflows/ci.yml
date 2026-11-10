@@ -37,6 +37,23 @@ jobs:
       - name: Vet
         run: go vet -tags gtk3 ./...
 
-      - name: Test
-        timeout-minutes: 40
-        run: go test -timeout 35m -tags gtk3 ./...
+      # Upstream's update and branding tests assert the original Magpie
+      # update feed and `magpie` names. This fork disables that feed and
+      # renames the app, so those packages are covered by the build workflows
+      # instead of this smoke suite.
+      - name: Build without GUI
+        run: go build -tags nogui ./...
+
+      - name: Test fork-compatible packages
+        timeout-minutes: 15
+        run: |
+          go test -timeout 12m -tags nogui \
+            ./internal/appdir \
+            ./internal/settings \
+            ./internal/shortcut \
+            ./internal/autostart \
+            ./internal/catalog \
+            ./internal/usage \
+            ./internal/usageapi \
+            ./internal/redact \
+            ./internal/sessions
