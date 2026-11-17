@@ -306,6 +306,31 @@ for (const name of ["spawn", "spawnSync"]) {
   }
 }
 
+let managedAuth = null
+let managedAuthChain = Promise.resolve()
+let managedAuthError = null
+const managedAuthWrites = new Map()
+let managedAuthSeq = 0
+function flushManagedAuth() {
+  return managedAuthChain.then(() => {
+    if (managedAuthError) throw managedAuthError
+  })
+}
+function saveManagedAuth(all) {
+  const payload = structuredClone(all)
+  managedAuth = payload
+  managedAuthChain = managedAuthChain.then(async () => {
+    const ticket = String(++managedAuthSeq)
+    const acknowledged = new Promise((resolve, reject) => managedAuthWrites.set(ticket, { resolve, reject }))
+    await send({ event: "managedAuth", ticket, payload })
+    await acknowledged
+  }).catch((error) => {
+    managedAuthError = error
+    throw error
+  })
+  // Keep an observed rejection until the awaiting caller receives it.
+  managedAuthChain.catch(() => {})
+}
 let authPath = ""
 let modelsDevPath = ""
 let piPath = "" // pi.js, which loads pi's extensions
@@ -337,6 +362,7 @@ function forgetAccount(key) {
   infos.delete(key)
   infoGen++
 }
+const managedLoginScope = new AsyncLocalStorage()
 const sessions = new Map() // oauth sign-in in progress → its authorize result
 const inflight = new Map() // fetch id → its lifecycle and owned resources
 const renewing = new Map() // account → its sign-in's renewal under way
@@ -604,6 +630,11 @@ function unsaid(input, init) {
 }
 
 globalThis.fetch = Object.assign(function fetch(input, init) {
+  const login = managedLoginScope.getStore()
+  if (login) {
+    const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined)
+    init = { ...init, signal: signal ? AbortSignal.any([signal, login.signal]) : login.signal }
+  }
   ;[input, init] = unsaid(input, init)
   const r = reach.getStore()
   if (!r) return asked(input, init)
@@ -811,6 +842,10 @@ const AUTH_SETTLED = 2000
 // readAuth is the sign-ins, shared: the caller must not change them, and
 // hands a plugin a copy (authCopy).
 function readAuth() {
+  if (typeof managedAuth !== "undefined" && managedAuth !== null) {
+    if (managedAuthError) throw managedAuthError
+    return managedAuth
+  }
   let st = null
   try {
     st = fs.statSync(authPath)
@@ -929,6 +964,10 @@ function keepAuth() {
 }
 
 function writeAuth(all) {
+  if (typeof managedAuth !== "undefined" && managedAuth !== null) {
+    saveManagedAuth(all)
+    return
+  }
   fs.mkdirSync(path.dirname(authPath), { recursive: true })
   keepAuth()
   writeDurable(authPath, Buffer.from(JSON.stringify(all, null, 2) + "\n"))
@@ -976,6 +1015,13 @@ function lockAuth() {
 // changeAuth runs change on the file as it is now, under the lock, and
 // writes it back when change says it changed it.
 function changeAuth(change) {
+  if (typeof managedAuth !== "undefined" && managedAuth !== null) {
+    if (managedAuthError) throw managedAuthError
+    const all = structuredClone(managedAuth)
+    const result = change(all)
+    if (result !== false) writeAuth(all)
+    return result
+  }
   const unlock = lockAuth()
   try {
     const { all, known } = readAuthState()
@@ -1148,6 +1194,7 @@ function makeClient() {
             send({ event: "auth", provider: providerOf(key), account: key })
           }
         }
+        await flushManagedAuth()
         return { data: true }
       },
       remove: async (opts) => {
@@ -2169,9 +2216,11 @@ async function authorize({ provider, method, inputs, account, proxy }) {
   // auth login) calls, and a plugin told so asks its questions on the
   // terminal, magpie's stdin here (opencode-antigravity-auth waited on its
   // "Project ID" prompt, the sign-in never starting)
-  const a = await via.run(proxy ?? "", () => inScope(provider, key, () => m.authorize(m.prompts?.length ? inputs ?? {} : undefined)))
+  const controller = typeof managedAuth !== "undefined" && managedAuth !== null ? new AbortController() : null
+  const start = () => via.run(proxy ?? "", () => inScope(provider, key, () => m.authorize(m.prompts?.length ? inputs ?? {} : undefined)))
+  const a = await (controller ? managedLoginScope.run(controller, start) : start())
   const session = String(nextSession++)
-  sessions.set(session, { provider, key, a, inputs, proxy: proxy ?? "" })
+  sessions.set(session, { provider, key, a, inputs, proxy: proxy ?? "", controller })
   // opened (not OpenCode's) is a page the plugin's own CLI opened already:
   // Grok Build's `grok login` opens it on macOS and Windows, and magpie's
   // opening it too showed it twice (andyfmyth on X)
@@ -2188,8 +2237,13 @@ function failed(r) {
 async function callback({ session, code }) {
   const s = sessions.get(session)
   if (!s) throw new Error("no such sign-in")
+  if (!s.controller) sessions.delete(session)
+  if (s.finishing) throw new Error("sign-in is already finishing")
+  s.finishing = true
+  const finish = () => via.run(s.proxy, () => inScope(s.provider, s.key, () => (s.a.method === "code" ? s.a.callback(code ?? "") : s.a.callback())))
+  const r = await (s.controller ? managedLoginScope.run(s.controller, finish) : finish())
+  if (s.cancelled || s.controller && sessions.get(session) !== s) throw new Error("sign-in cancelled")
   sessions.delete(session)
-  const r = await via.run(s.proxy, () => inScope(s.provider, s.key, () => (s.a.method === "code" ? s.a.callback(code ?? "") : s.a.callback())))
   if (!r || r.type !== "success") return failed(r)
   return { ok: true, ...save(s.provider, s.key, r, undefined) }
 }
@@ -2694,6 +2748,7 @@ const handlers = {
   },
   async init(p) {
     authPath = p.authPath
+    if (p.managedAuth && typeof p.managedAuth === "object") managedAuth = structuredClone(p.managedAuth)
     modelsDevPath = p.modelsDevPath ?? ""
     piPath = p.piPath ?? ""
     directory = p.directory ?? directory
@@ -2710,6 +2765,15 @@ const handlers = {
   validate: (p) => ({ error: validate(p.provider, p.method, p.key, p.value) }),
   authorize,
   callback,
+  cancelAuthorization(p) {
+    const session = sessions.get(p.session)
+    if (session) {
+      session.cancelled = true
+      session.controller?.abort()
+      sessions.delete(p.session)
+    }
+    return null
+  },
   tool: runTool,
   apiKey,
   load,
@@ -2839,6 +2903,15 @@ rl.on("line", (line) => {
   } catch {
     return
   }
+  if (msg.method === "managedAuthAck") {
+    const write = managedAuthWrites.get(msg.params?.ticket)
+    if (write) {
+      managedAuthWrites.delete(msg.params.ticket)
+      if (msg.params.error) write.reject(new Error(msg.params.error))
+      else write.resolve()
+    }
+    return
+  }
   if (msg.method === "abort") {
     const id = msg.params?.id
     const record = inflight.get(id)
@@ -2916,10 +2989,8 @@ rl.on("line", (line) => {
   }
   wait
     .then(() => fn(msg.params ?? {}))
-    .then(
-      (result) => send({ id: msg.id, result: result ?? null }),
-      (e) => send({ id: msg.id, error: { message: String(e?.message ?? e) } }),
-    )
+    .then((result) => (typeof flushManagedAuth === "function" ? flushManagedAuth() : Promise.resolve()).then(() => send({ id: msg.id, result: result ?? null })))
+    .catch((e) => send({ id: msg.id, error: { message: String(e?.message ?? e) } }))
     .finally(done)
 })
 rl.on("close", () => {

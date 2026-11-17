@@ -243,6 +243,12 @@ func wontLoad(bun string, err error) *BunUnstartableError {
 // magpie downloaded and keeps up to date, downloading it now when there
 // is none yet.
 func Bun(ctx context.Context) (string, error) {
+	if bun, managed := managedBun(); managed {
+		if bun == "" {
+			return "", errors.New("bundled Bun is not configured")
+		}
+		return bun, nil
+	}
 	if b := os.Getenv("MAGPIE_BUN"); b != "" {
 		return b, nil
 	}
@@ -253,6 +259,9 @@ func Bun(ctx context.Context) (string, error) {
 	if haveBun(v) {
 		return exe, nil
 	}
+	if bundled := bundledRuntime(); bundled != nil {
+		return bundled.Bun, nil
+	}
 	if err := downloadBun(ctx, v, exe); err != nil {
 		return "", fmt.Errorf("downloading Bun %s to run plugins: %w", v, err)
 	}
@@ -261,12 +270,15 @@ func Bun(ctx context.Context) (string, error) {
 
 // HasBun is whether a Bun is at hand without a download.
 func HasBun() bool {
+	if bun, managed := managedBun(); managed {
+		return bun != ""
+	}
 	if os.Getenv("MAGPIE_BUN") != "" {
 		return true
 	}
 	bunMu.Lock()
 	defer bunMu.Unlock()
-	return haveBun(inUseLocked())
+	return haveBun(inUseLocked()) || bundledRuntime() != nil
 }
 
 func downloadBun(ctx context.Context, version, exe string) error {

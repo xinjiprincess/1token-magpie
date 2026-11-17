@@ -28,6 +28,7 @@ import (
 	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/filememo"
 	"github.com/yetone/magpie/internal/lastgood"
+	"github.com/yetone/magpie/internal/managedstate"
 	"github.com/yetone/magpie/internal/netproxy"
 	"github.com/yetone/magpie/internal/settings"
 )
@@ -49,6 +50,8 @@ type message struct {
 		Message string `json:"message"`
 	} `json:"error"`
 	Event   string            `json:"event"`
+	Ticket  string            `json:"ticket"`
+	Payload json.RawMessage   `json:"payload"`
 	Status  int               `json:"status"`
 	Headers map[string]string `json:"headers"`
 	Data    string            `json:"data"`
@@ -871,7 +874,8 @@ func start(ctx context.Context) (*host, error) {
 	if crashed {
 		err = whyDied(ctx, bun, err)
 	}
-	if err == nil || !crashed || os.Getenv("MAGPIE_BUN") != "" {
+	_, managed := managedBun()
+	if err == nil || !crashed || managed || bundledRuntime() != nil || os.Getenv("MAGPIE_BUN") != "" {
 		// a Bun that can't be started at all isn't fallen back from: the
 		// one before is the same build for this system, and setting this
 		// one aside would mark a good version bad (#1877)
@@ -927,7 +931,7 @@ func startOn(ctx context.Context, bun string) (*host, bool, error) {
 	if err := os.MkdirAll(settings.Dir(), 0o700); err != nil {
 		return nil, false, err
 	}
-	if catalog.Source() == "" {
+	if catalog.Source() == "" && !managedstate.Enabled() {
 		// a plugin's provider has the models models.dev lists for it, as in
 		// OpenCode; sync in the background so starting the host never stalls
 		// on models.dev (#1922, #1928).
@@ -956,7 +960,7 @@ func startOn(ctx context.Context, bun string) (*host, bool, error) {
 	proxy := hostProxy(env()) // what bunCommand gives it
 	cmd := bunCommand(context.Background(), bun, settings.Dir(), "run", js)
 	addr := hostAddr(cmd.Env)
-	cmd.Env = hostEnv(cmd.Env)
+	cmd.Env = ManagedEnvironment(hostEnv(cmd.Env))
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, false, err
@@ -1019,7 +1023,20 @@ func startOn(ctx context.Context, bun string) (*host, bool, error) {
 	if catalogPath == "" {
 		catalogPath = catalog.CachePath()
 	}
+	var managedAuth any
+	if managedstate.Enabled() {
+		raw, err := managedstate.Read("plugin-auth")
+		if err != nil {
+			h.stop()
+			return nil, false, err
+		}
+		if err = json.Unmarshal(raw, &managedAuth); err != nil {
+			h.stop()
+			return nil, false, err
+		}
+	}
 	err = h.call(ictx, "init", map[string]any{
+		"managedAuth":   managedAuth,
 		"authPath":      AuthPath(),
 		"modelsDevPath": catalogPath,
 		"piPath":        pi,
@@ -1060,6 +1077,10 @@ var (
 // stops the scanner; the rest is read and dropped, so the child is never left
 // blocked on a pipe nobody reads, and the log says from where.
 func drainStderr(r io.Reader) {
+	if managedstate.Enabled() {
+		_, _ = io.Copy(io.Discard, r)
+		return
+	}
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64<<10), 4<<20)
 	for sc.Scan() {
@@ -1161,6 +1182,21 @@ func readLine(r *bufio.Reader, max int) ([]byte, error) {
 func (h *host) dispatch(m message) {
 	if m.ID == 0 {
 		switch m.Event {
+		case "managedAuth":
+			if !managedstate.Enabled() {
+				return
+			}
+			// Do not wait for the parent vault while holding the host reader: the
+			// acknowledgement is sent by its writer after the durable put returns.
+			go func() {
+				err := managedstate.Write("plugin-auth", m.Payload)
+				why := ""
+				if err != nil {
+					why = "credential persistence failed"
+				}
+				line, _ := json.Marshal(map[string]any{"method": "managedAuthAck", "params": map[string]any{"ticket": m.Ticket, "error": why}})
+				_ = h.enqueueLine(h.ctx, append(line, '\n'), nil, nil, callActive)
+			}()
 		case "auth":
 			changed()
 		case "recovered":
@@ -1712,6 +1748,10 @@ func proxied(hp string) bool {
 // gateway's address (hostAddr): a port changed in Settings is the next
 // host's. Called under hostMu.
 func (h *host) proxyMoved() bool {
+	// Port changes are local settings and must not wait for proxy discovery.
+	if h.addr != "" && hostAddr(os.Environ()) != h.addr {
+		return true
+	}
 	every := proxyLookEvery
 	if !proxied(h.proxy) {
 		every = min(every, proxyLookNone)

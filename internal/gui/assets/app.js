@@ -15406,6 +15406,61 @@ function atAddress(urls, origin) {
 // view goes down with it. The button stays at the view's foot however long
 // the list is; with the sheet already open it takes the view down to it,
 // and it steps aside while the sheet's head is in sight.
+// Model-only transfer: credentials never pass through this preview dialog.
+$("#sendXfriend").onclick = () => {
+  if (web) { window.location.href = "xfriend://models/import?source=magpie"; return; }
+  api("model-transfer/open-xfriend", {}).then(() => status(t("Confirm the selected models in Xfriend"), "ok"), statusErr);
+};
+$("#exportXfriend").onclick = async () => {
+  const dialog = el("dialog", "action-confirm xfriend-export");
+  dialog.id = "xfriendExportDialog";
+  dialog.append(el("h2", "", t("Export for Xfriend…")));
+  const note = el("p", "", t("Only selected model connections and routing groups are exported. Subscriptions are authorized again in Xfriend. Other app settings stay here."));
+  const rows = el("div", "xfriend-transfer-items");
+  rows.style.maxHeight = "42vh"; rows.style.overflowY = "auto";
+  const password = input("", t("Export password")); password.type = "password"; password.autocomplete = "new-password";
+  password.setAttribute("aria-label", t("Export password"));
+  const keys = el("input"); keys.type = "checkbox";
+  const keyLabel = el("label"); keyLabel.append(keys, document.createTextNode(" " + t("Include API keys in the encrypted file")));
+  const error = el("p", "warnbox"); error.hidden = true;
+  const bar = el("div", "bar");
+  const cancel = el("button", "text", t("Cancel"));
+  const save = el("button", "text primary", t("Export encrypted file")); save.disabled = true;
+  const dismiss = () => { dialog.close(); dialog.remove(); };
+  cancel.onclick = dismiss; dialog.addEventListener("cancel", () => dialog.remove(), { once: true });
+  bar.append(cancel, save); dialog.append(note, rows, keyLabel, password, error, bar); document.body.append(dialog); dialog.showModal();
+  let preview;
+  const chosenProviders = new Set(), chosenGroups = new Set();
+  const recount = () => { save.disabled = !preview || !password.value || !(chosenProviders.size || chosenGroups.size); };
+  password.oninput = recount;
+  try {
+    preview = await api("model-transfer/preview");
+    if (!dialog.isConnected) return;
+    for (const [kind, items, selected] of [["provider", preview.providers || [], chosenProviders], ["group", preview.groups || [], chosenGroups]]) {
+      for (const item of items) {
+        const label = el("label", "row"); const checkbox = el("input"); checkbox.type = "checkbox";
+        checkbox.dataset.kind = kind; checkbox.value = item.id; checkbox.checked = true; selected.add(item.id);
+        checkbox.onchange = () => { checkbox.checked ? selected.add(item.id) : selected.delete(item.id); recount(); };
+        label.append(checkbox, document.createTextNode(" " + item.name + (item.auth_state === "needs_reauth" ? " · " + t("Authorize again in Xfriend") : "")));
+        rows.append(label);
+      }
+    }
+    if (!chosenProviders.size && !chosenGroups.size) rows.append(el("p", "", t("No saved model connections to export")));
+    recount();
+  } catch (e) { error.hidden = false; error.textContent = e.message; }
+  save.onclick = async () => {
+    save.disabled = true; error.hidden = true;
+    try {
+      const result = await api("model-transfer/export", { selection: { fingerprint: preview.fingerprint, provider_ids: [...chosenProviders], group_ids: [...chosenGroups], include_keys: keys.checked }, password: password.value });
+      password.value = ""; dismiss(); status(t("Encrypted model file saved: {path}", { path: result.path }), "ok");
+    } catch (e) {
+      error.hidden = false;
+      error.textContent = /MODEL_TRANSFER_CHANGED/.test(e.message) ? t("The source changed. Close this dialog and preview the export again.") : e.message;
+      recount();
+    }
+  };
+};
+
 $("#addProvider").onclick = (e) => {
   const view = $("#view-providers"), sheet = $("#addSheet");
   if (!adding) {

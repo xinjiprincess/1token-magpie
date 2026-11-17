@@ -25,6 +25,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/yetone/magpie/internal/appdir"
 	"github.com/yetone/magpie/internal/settings"
 )
 
@@ -122,6 +123,9 @@ func AddClaudeSetupToken(token string) (string, error) {
 // config directory is dir (claudeAccountDir), "" when it has a sign-in of
 // its own or is no saved account's. A run there is given it, and no other.
 func ClaudeDirToken(dir string) string {
+	if appdir.Managed() {
+		return managedClaudeDirToken(dir)
+	}
 	if dir == "" {
 		return ""
 	}

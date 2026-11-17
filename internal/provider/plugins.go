@@ -16,6 +16,7 @@ import (
 
 	"github.com/tidwall/gjson"
 	"github.com/yetone/magpie/internal/catalog"
+	"github.com/yetone/magpie/internal/managedstate"
 	"github.com/yetone/magpie/internal/plugin"
 	"github.com/yetone/magpie/internal/probelog"
 	"github.com/yetone/magpie/internal/settings"
@@ -869,6 +870,9 @@ func firstOf(ss ...string) string {
 // request log here, whichever way it goes: a plugin's fetch and a client
 // of the account's own pass no transport that would.
 func (p Provider) Do(client *http.Client, req *http.Request) (*http.Response, error) {
+	if managedstate.Enabled() {
+		return p.managedDo(client, req)
+	}
 	if ctx := req.Context(); probelog.Pending(ctx) {
 		start := time.Now()
 		req = req.WithContext(probelog.Taken(ctx))

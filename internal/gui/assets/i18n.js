@@ -4,6 +4,17 @@
 // works. {name} slots are filled by t(str, vars).
 const I18N = {
   zh: {
+    "Import into Xfriend": "导入到 Xfriend",
+    "Export for Xfriend…": "导出给 Xfriend…",
+    "Confirm the selected models in Xfriend": "请在 Xfriend 中确认需要导入的模型",
+    "Only selected model connections and routing groups are exported. Subscriptions are authorized again in Xfriend. Other app settings stay here.": "仅导出选中的模型连接和路由组。订阅账号需在 Xfriend 重新授权，其他应用设置保持原样。",
+    "Export password": "导出密码",
+    "Include API keys in the encrypted file": "在加密文件中包含 API Key",
+    "Export encrypted file": "导出加密文件",
+    "Authorize again in Xfriend": "需在 Xfriend 重新授权",
+    "No saved model connections to export": "没有可导出的已保存模型连接",
+    "Encrypted model file saved: {path}": "模型加密文件已保存：{path}",
+    "The source changed. Close this dialog and preview the export again.": "源配置已变化，请关闭对话框并重新预览导出。",
     "MCP router": "MCP 路由",
     "in {agents}": "用于 {agents}",
     "Browser access": "浏览器访问",

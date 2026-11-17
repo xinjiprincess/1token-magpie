@@ -4626,3 +4626,8 @@ body .row.agent .ag-prefs .row.pref .who { display: block; }
 .sess-tools .led-rename { flex: none; width: 180px; height: 26px; padding: 0 8px; border-radius: 7px; font-size: 12px; }
 /* Settings › About › Open-source licenses: the notices, as written */
 .notices-text { margin: 0; font: 11px/1.5 var(--code); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Model export keeps the password usable in narrow native/web views. */
+.xfriend-export input[type="password"] { box-sizing: border-box; width: 100%; margin: 12px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card-2); color: var(--fg); font: inherit; }
+.xfriend-export > label { display: flex; align-items: flex-start; gap: 6px; margin-top: 12px; line-height: 1.5; }
+.xfriend-export .xfriend-transfer-items .row { min-height: 44px; }

@@ -262,6 +262,9 @@ func (e decideRefused) Unwrap() error { return e.err }
 // answers, the one that failed resting as it would for a chat. ok is false
 // when model names no decision group.
 func (s *Server) askDecisionGroup(wait time.Duration, model string, intents []string, prev before, effort bool, text string) (v verdict, ok bool, err error) {
+	return s.askDecisionGroupContext(context.Background(), wait, model, intents, prev, effort, text)
+}
+func (s *Server) askDecisionGroupContext(ctx context.Context, wait time.Duration, model string, intents []string, prev before, effort bool, text string) (v verdict, ok bool, err error) {
 	if !provider.IsGroupRef(model) {
 		return verdict{}, false, nil
 	}
@@ -276,7 +279,7 @@ func (s *Server) askDecisionGroup(wait time.Duration, model string, intents []st
 	if len(cs) == 0 {
 		return verdict{}, true, fmt.Errorf("no decision model of the group %s can be asked now", g.Name)
 	}
-	v, err = s.askDecideTries(wait, cs, intents, prev, effort, text)
+	v, err = s.askDecideTriesContext(ctx, wait, cs, intents, prev, effort, text)
 	return v, true, err
 }
 
@@ -284,12 +287,15 @@ func (s *Server) askDecisionGroup(wait time.Duration, model string, intents []st
 // or accounts in its routing's order (decideKeys), each asked until one
 // answers, as a decision group's are.
 func (s *Server) askDecider(wait time.Duration, p provider.Provider, model string, intents []string, prev before, effort bool, text string) (verdict, error) {
+	return s.askDeciderContext(context.Background(), wait, p, model, intents, prev, effort, text)
+}
+func (s *Server) askDeciderContext(ctx context.Context, wait time.Duration, p provider.Provider, model string, intents []string, prev before, effort bool, text string) (verdict, error) {
 	cs, _ := s.decideKeys(p, model)
 	cs = probeOne(cs) // of those resting, only the one back soonest (#1799)
 	if len(cs) == 0 {
 		return verdict{}, fmt.Errorf("no key or account of %s may be asked %s now", p.Name, model)
 	}
-	return s.askDecideTries(wait, cs, intents, prev, effort, text)
+	return s.askDecideTriesContext(ctx, wait, cs, intents, prev, effort, text)
 }
 
 // askDecideTries asks each of cs as Jev is (askJev) until one answers, the
@@ -300,8 +306,11 @@ func (s *Server) askDecider(wait time.Duration, p provider.Provider, model strin
 // hold). wait is that wait, or what a request has left of it (askWaited):
 // a try cut off by less than the whole wait is not rested for it.
 func (s *Server) askDecideTries(wait time.Duration, cs []candidate, intents []string, prev before, effort bool, text string) (v verdict, err error) {
+	return s.askDecideTriesContext(context.Background(), wait, cs, intents, prev, effort, text)
+}
+func (s *Server) askDecideTriesContext(parent context.Context, wait time.Duration, cs []candidate, intents []string, prev before, effort bool, text string) (v verdict, err error) {
 	full := classifyTimeout()
-	ctx, cancel := context.WithTimeout(context.Background(), wait)
+	ctx, cancel := context.WithTimeout(parent, wait)
 	defer cancel()
 	for _, c := range cs {
 		if ctx.Err() != nil {

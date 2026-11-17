@@ -1338,6 +1338,7 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 	sessionRoutes(mux, w)
 	sessionManageRoutes(mux, w)
 	backupRoutes(mux, w)
+	modelTransferRoutes(mux, w)
 	uninstallRoutes(mux, w)
 	archiveRoutes(mux)
 	libraryRoutes(mux, w)

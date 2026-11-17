@@ -195,7 +195,7 @@ var tryBun = func(ctx context.Context, exe, v string) error {
 // switched to, the host restarted gracefully. It says the version taken,
 // "" when none was.
 func CheckBun(ctx context.Context) (string, error) {
-	if os.Getenv("MAGPIE_BUN") != "" {
+	if os.Getenv("MAGPIE_BUN") != "" || bundledRuntime() != nil {
 		return "", nil
 	}
 	latest, published, err := bunLatest(ctx)

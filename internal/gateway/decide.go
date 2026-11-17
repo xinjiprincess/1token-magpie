@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yetone/magpie/internal/managedstate"
 	"github.com/yetone/magpie/internal/provider"
 	"github.com/yetone/magpie/internal/usage"
 )
@@ -450,6 +451,7 @@ func (s *Server) systemOne(ctx context.Context, p provider.Provider, model strin
 // the provider answers in another one. DecideURL and Sign errors are as
 // they are; a transport error is named with p.
 func (s *Server) postDecide(ctx context.Context, p provider.Provider, model string, body []byte) (int, []byte, http.Header, error) {
+	ctx = managedstate.WithModel(ctx, model)
 	// every decision call goes through here — System One, a group rule's
 	// classifier, a decision group's members: a model the user disabled
 	// (#1867) is never asked

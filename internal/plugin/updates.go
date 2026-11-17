@@ -175,6 +175,9 @@ func CheckUpdates(ctx context.Context) (Updates, error) {
 	var es, gits []Entry
 	var names []string
 	for _, e := range Load().Plugins {
+		if bundledInUse(e.Spec) {
+			continue
+		}
 		// a git one's package may be on npm too, as someone else's: its
 		// repository is asked instead
 		if IsGit(e.Spec) && !e.Off {

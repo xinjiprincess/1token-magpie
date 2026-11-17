@@ -17,6 +17,7 @@ import (
 
 	"github.com/yetone/magpie/internal/filememo"
 	"github.com/yetone/magpie/internal/lastgood"
+	"github.com/yetone/magpie/internal/managedstate"
 	"github.com/yetone/magpie/internal/settings"
 	"github.com/yetone/magpie/internal/steady"
 )
@@ -31,6 +32,8 @@ type Method struct {
 	Placeholder string `json:"placeholder,omitempty"`
 	// Keyless skips personal-key entry; authorize supplies the credential.
 	Keyless bool `json:"keyless,omitempty"`
+	// Disabled is a host policy restriction, present only in managed catalogs.
+	Disabled bool `json:"disabled,omitempty"`
 }
 
 // KeyTitle is what an "api" method's key is asked as: its label, as
@@ -724,6 +727,12 @@ func firstNonEmpty(ss ...string) string {
 // readAuth is plugin-auth.json's sign-ins as storedAuth, by key. What it
 // returns is shared: the caller must not change it.
 func readAuth() map[string]storedAuth {
+	if managedstate.Enabled() {
+		raw, _ := managedstate.Read("plugin-auth")
+		out := map[string]storedAuth{}
+		_ = json.Unmarshal(raw, &out)
+		return out
+	}
 	m, _ := filememo.Read("plugin-auth:stored", AuthPath(), func(b []byte) (map[string]storedAuth, error) {
 		raw, err := parseAuth(b)
 		out := make(map[string]storedAuth, len(raw))
@@ -740,6 +749,12 @@ func readAuth() map[string]storedAuth {
 // authRaw is plugin-auth.json's sign-ins by key, each as it is written.
 // What it returns is shared: the caller must not change it.
 func authRaw() map[string]json.RawMessage {
+	if managedstate.Enabled() {
+		raw, _ := managedstate.Read("plugin-auth")
+		out := map[string]json.RawMessage{}
+		_ = json.Unmarshal(raw, &out)
+		return out
+	}
 	m, _ := filememo.Read("plugin-auth", AuthPath(), parseAuth)
 	return m
 }
@@ -775,7 +790,12 @@ func validAuth(b []byte) bool {
 // readAuthFile is plugin-auth.json, or its last good generation when a
 // crash left it all zero (#1505): sign-ins that don't read are unknown,
 // never none.
-func readAuthFile() ([]byte, error) { return lastgood.Read(AuthPath(), validAuth) }
+func readAuthFile() ([]byte, error) {
+	if managedstate.Enabled() {
+		return managedstate.Read("plugin-auth")
+	}
+	return lastgood.Read(AuthPath(), validAuth)
+}
 
 // SignedIn is whether a plugin sign-in is kept for provider.
 func SignedIn(provider string) bool {
@@ -925,6 +945,13 @@ func SignOut(ctx context.Context, provider, account string) error {
 		}
 	}
 	b, _ = json.MarshalIndent(m, "", "  ")
+	if managedstate.Enabled() {
+		if err := managedstate.Write("plugin-auth", b); err != nil {
+			return err
+		}
+		changed()
+		return nil
+	}
 	if err := lastgood.Keep(AuthPath(), validAuth, 0o600); err != nil {
 		return err
 	}

@@ -23,6 +23,7 @@ import (
 	"errors"
 	"os"
 
+	"github.com/yetone/magpie/internal/appdir"
 	"github.com/yetone/magpie/internal/settings"
 )
 
@@ -34,7 +35,7 @@ func discoveryOff() bool { return settings.AccountDiscoveryOff() }
 // readAccountFile is os.ReadFile for an agent's credential file, refused
 // while discovery is off.
 func readAccountFile(path string) ([]byte, error) {
-	if discoveryOff() {
+	if appdir.Managed() || discoveryOff() {
 		return nil, errAccountDiscoveryOff
 	}
 	return os.ReadFile(path)

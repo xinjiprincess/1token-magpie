@@ -66,6 +66,9 @@ type Vertex struct {
 	// Credentials is a credentials file; "" finds them as Google's
 	// libraries do (vertexCredentialsFile).
 	Credentials string `json:"credentials,omitempty"`
+	// CredentialsJSON holds explicitly imported credentials in the owner's vault.
+	// Managed mode accepts only this form, never a file or host ADC fallback.
+	CredentialsJSON string `json:"credentialsJSON,omitempty"`
 	// Impersonate is the email of a service account the credentials are
 	// traded for, "" to ask as their own account.
 	Impersonate string `json:"impersonate,omitempty"`
@@ -82,10 +85,11 @@ func (v *Vertex) Normal() *Vertex {
 		return nil
 	}
 	n := Vertex{
-		Project:     strings.ToLower(strings.TrimSpace(v.Project)),
-		Location:    strings.ToLower(strings.TrimSpace(v.Location)),
-		Credentials: strings.TrimSpace(v.Credentials),
-		Impersonate: strings.ToLower(strings.TrimSpace(v.Impersonate)),
+		Project:         strings.ToLower(strings.TrimSpace(v.Project)),
+		Location:        strings.ToLower(strings.TrimSpace(v.Location)),
+		Credentials:     strings.TrimSpace(v.Credentials),
+		CredentialsJSON: strings.TrimSpace(v.CredentialsJSON),
+		Impersonate:     strings.ToLower(strings.TrimSpace(v.Impersonate)),
 	}
 	if n == (Vertex{}) {
 		return nil
@@ -105,6 +109,15 @@ var (
 
 // check is why a Vertex AI provider with v can't be saved, nil when it can.
 func (v *Vertex) check() error {
+	if appdir.Managed() && (v == nil || v.CredentialsJSON == "" || v.Credentials != "") {
+		return errors.New("managed Vertex AI requires imported credentials JSON; host files and ADC are unavailable")
+	}
+	if v != nil && v.CredentialsJSON != "" {
+		var c googleCreds
+		if json.Unmarshal([]byte(v.CredentialsJSON), &c) != nil || c.Type == "" {
+			return errors.New("invalid imported Google credentials JSON")
+		}
+	}
 	switch {
 	case v == nil || v.Project == "":
 		return errors.New("Google Vertex AI needs the id of your Google Cloud project")
@@ -358,26 +371,42 @@ func (p Provider) vertexAccessToken(ctx context.Context) (string, error) {
 	if v == nil {
 		return "", errors.New("Google Vertex AI needs the id of your Google Cloud project")
 	}
-	file, err := vertexCredentialsFile(v.Credentials)
-	if err != nil {
-		return "", err
-	}
-	st, err := os.Stat(file)
-	if err != nil {
-		switch {
-		case !errors.Is(err, fs.ErrNotExist):
-			return "", fmt.Errorf("Google credentials: %w", err)
-		case v.Credentials != "":
-			return "", fmt.Errorf("no Google credentials at %s: correct the provider's credentials file, or clear it to use Application Default Credentials", file)
-		case os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") != "":
-			// as Google's libraries, which look no further; gcloud's
-			// file isn't read while the variable is set
-			return "", fmt.Errorf("GOOGLE_APPLICATION_CREDENTIALS names %s, which isn't there: correct or unset it, or give the provider a credentials file", file)
+	var file, stamp, key string
+	inline := appdir.Managed() || v.CredentialsJSON != ""
+	if inline {
+		if v.CredentialsJSON == "" || v.Credentials != "" {
+			return "", errors.New("managed Vertex AI requires imported credentials JSON; host files and ADC are unavailable")
 		}
-		return "", fmt.Errorf("no Google credentials at %s: sign in with `gcloud auth application-default login`, or give the provider a credentials file", file)
+		var c googleCreds
+		if json.Unmarshal([]byte(v.CredentialsJSON), &c) != nil || c.Type == "" {
+			return "", errors.New("invalid imported Google credentials JSON")
+		}
+		sum := sha256.Sum256([]byte(v.CredentialsJSON))
+		stamp = fmt.Sprintf("%x", sum)
+		key = "vault:" + p.ID + "\x00" + stamp + "\x00" + v.Impersonate
+	} else {
+		var err error
+		file, err = vertexCredentialsFile(v.Credentials)
+		if err != nil {
+			return "", err
+		}
+		st, err := os.Stat(file)
+		if err != nil {
+			switch {
+			case !errors.Is(err, fs.ErrNotExist):
+				return "", fmt.Errorf("Google credentials: %w", err)
+			case v.Credentials != "":
+				return "", fmt.Errorf("no Google credentials at %s: correct the provider's credentials file, or clear it to use Application Default Credentials", file)
+			case os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") != "":
+				// as Google's libraries, which look no further; gcloud's
+				// file isn't read while the variable is set
+				return "", fmt.Errorf("GOOGLE_APPLICATION_CREDENTIALS names %s, which isn't there: correct or unset it, or give the provider a credentials file", file)
+			}
+			return "", fmt.Errorf("no Google credentials at %s: sign in with `gcloud auth application-default login`, or give the provider a credentials file", file)
+		}
+		stamp = fmt.Sprint(st.Size(), " ", st.ModTime().UnixNano())
+		key = file + "\x00" + v.Impersonate
 	}
-	stamp := fmt.Sprint(st.Size(), " ", st.ModTime().UnixNano())
-	key := file + "\x00" + v.Impersonate
 	vertexTokens.Lock()
 	t := vertexTokens.m[key]
 	if t == nil {
@@ -400,7 +429,14 @@ func (p Provider) vertexAccessToken(ctx context.Context) (string, error) {
 	}
 	mctx, cancel := context.WithTimeout(ctx, vertexMintWait)
 	defer cancel()
-	tok, exp, err := mintVertex(mctx, file, v.Impersonate)
+	var tok string
+	var exp time.Time
+	var err error
+	if inline {
+		tok, exp, err = mintVertexJSON(mctx, v.CredentialsJSON, v.Impersonate)
+	} else {
+		tok, exp, err = mintVertex(mctx, file, v.Impersonate)
+	}
 	if ctx.Err() == nil { // a request given up on says nothing of the mint
 		t.failed = err
 		t.mints.Add(1)
@@ -521,6 +557,23 @@ func mintVertex(ctx context.Context, file, impersonate string) (string, time.Tim
 		return impersonateFor(ctx, tok, impersonate, nil)
 	}
 	return tok, exp, nil
+}
+
+// mintVertexJSON uses the same supported credential exchanges without ever
+// consulting a host file, environment variable or gcloud profile.
+func mintVertexJSON(ctx context.Context, raw, impersonate string) (string, time.Time, error) {
+	var c googleCreds
+	if json.Unmarshal([]byte(raw), &c) != nil {
+		return "", time.Time{}, errors.New("invalid imported Google credentials JSON")
+	}
+	token, expiry, err := c.mint(ctx, true)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	if impersonate != "" {
+		return impersonateFor(ctx, token, impersonate, nil)
+	}
+	return token, expiry, nil
 }
 
 // mint is a token from c. top is false for an impersonation's source,

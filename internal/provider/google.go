@@ -39,6 +39,7 @@ import (
 
 	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/edit"
+	"github.com/yetone/magpie/internal/managedstate"
 	"github.com/yetone/magpie/internal/probelog"
 )
 
@@ -128,10 +129,11 @@ type googleAuth struct {
 
 // googleAccount is one signed-in Google account of an app.
 type googleAccount struct {
-	app  googleApp
-	user string
-	auth googleAuth
-	own  bool // Gemini CLI's own sign-in
+	managed string // owner-vault account key, never a host CLI profile
+	app     googleApp
+	user    string
+	auth    googleAuth
+	own     bool // Gemini CLI's own sign-in
 }
 
 // geminiDir is where Gemini CLI keeps its sign-in.
@@ -404,6 +406,14 @@ func (p googleProject) entitlements() []string {
 
 // token is a live access token for the account.
 func (g googleAccount) token(ctx context.Context) (string, error) {
+	if g.managed != "" {
+		lock := nativeLock(g.managed)
+		lock.Lock()
+		defer lock.Unlock()
+		if latest, ok := nativeAccounts()[g.managed]; ok {
+			g.auth = latest.Google
+		}
+	}
 	googleState.Lock()
 	t, ok := googleState.tokens[g.auth.RefreshToken]
 	googleState.Unlock()
@@ -413,7 +423,7 @@ func (g googleAccount) token(ctx context.Context) (string, error) {
 	if t.AccessToken != "" && time.Until(time.UnixMilli(t.Expiry)) > 2*time.Minute {
 		return t.AccessToken, nil
 	}
-	form := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {g.auth.RefreshToken},
+	form := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {t.RefreshToken},
 		"client_id": {g.app.clientID}, "client_secret": {g.app.clientSecret}}
 	var fresh struct {
 		AccessToken string `json:"access_token"`
@@ -430,8 +440,15 @@ func (g googleAccount) token(ctx context.Context) (string, error) {
 		}
 		return "", fmt.Errorf("%s is signed out (%s); %s", g.app.name, msg, how)
 	}
-	t = googleAuth{AccessToken: fresh.AccessToken, RefreshToken: g.auth.RefreshToken,
+	t = googleAuth{AccessToken: fresh.AccessToken, RefreshToken: g.auth.RefreshToken, Project: g.auth.Project,
 		Expiry: time.Now().Add(time.Duration(fresh.ExpiresIn) * time.Second).UnixMilli()}
+	if g.managed != "" {
+		account := nativeAccounts()[g.managed]
+		account.Google = t
+		if err := saveNativeAccount(g.managed, account); err != nil {
+			return "", err
+		}
+	}
 	googleState.Lock()
 	googleState.tokens[g.auth.RefreshToken] = t
 	googleState.Unlock()
@@ -460,6 +477,9 @@ var antigravityVer struct {
 // antigravityVersion is the newest Antigravity's version, which its
 // requests carry; asked of its updater at most every few hours.
 func antigravityVersion() string {
+	if managedstate.Enabled() {
+		return "2.9.1"
+	}
 	antigravityVer.Lock()
 	defer antigravityVer.Unlock()
 	if antigravityVer.v != "" && time.Since(antigravityVer.at) < 6*time.Hour {

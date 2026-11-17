@@ -63,7 +63,9 @@ import (
 	"github.com/yetone/magpie/internal/appdir"
 	"github.com/yetone/magpie/internal/claudecode"
 	"github.com/yetone/magpie/internal/claudetui"
+	"github.com/yetone/magpie/internal/managedstate"
 	"github.com/yetone/magpie/internal/netproxy"
+	"github.com/yetone/magpie/internal/plugin"
 	"github.com/yetone/magpie/internal/proc"
 	"github.com/yetone/magpie/internal/provider"
 	"github.com/yetone/magpie/internal/settings"
@@ -318,7 +320,12 @@ type bridgeTool struct {
 	InputSchema json.RawMessage `json:"inputSchema"`
 }
 
-func claudeConfigDir() string { return appdir.ClaudeDir() }
+func claudeConfigDir() string {
+	if appdir.Managed() {
+		return filepath.Join(appdir.Config(), "native-claude")
+	}
+	return appdir.ClaudeDir()
+}
 
 // claudeProjectName is the folder Claude Code keeps a working directory's
 // sessions under: the path with everything but letters and digits made "-".
@@ -533,6 +540,12 @@ type claudeCLI struct {
 // claudeBinary is this machine's Claude Code, or the one magpie downloaded
 // for it (claudecode.Find), else one in WSL.
 func claudeBinary() (claudeCLI, error) {
+	if path, managed := claudecode.ManagedPath(); managed {
+		if path == "" {
+			return claudeCLI{}, errors.New("bundled official Claude Code is unavailable")
+		}
+		return claudeCLI{path: path}, nil
+	}
 	if p := claudecode.Find(); p != "" {
 		return claudeCLI{path: p}, nil
 	}
@@ -761,7 +774,7 @@ func (b *subscriptionBridge) startRun(ctx context.Context, req *Request, model, 
 	// user of the computer can list
 	token := randomToken()
 	callbackPath := filepath.Join(tmp, "callback")
-	if err := os.WriteFile(callbackPath, []byte(callbackBaseURL()+claudeMCPPath+token), 0o600); err != nil {
+	if err := os.WriteFile(callbackPath, []byte(b.callbackBase()+claudeMCPPath+token), 0o600); err != nil {
 		cleanup()
 		return nil, nil, err
 	}
@@ -861,6 +874,9 @@ func (b *subscriptionBridge) startRun(ctx context.Context, req *Request, model, 
 	// the shim (claudetui) is handed the -p arguments, and becomes that -p
 	// run when the interactive one doesn't start
 	tui := claudeTUI(req, binary, prompt)
+	if managedstate.Enabled() {
+		tui = false
+	}
 	if tui && binary.wsl != nil {
 		// the helper would wait for a transcript it can't see
 		if dir := binary.tuiWSLUnread(configDir); dir != "" {
@@ -893,7 +909,7 @@ func (b *subscriptionBridge) startRun(ctx context.Context, req *Request, model, 
 		cmd = binary.command(context.Background(), args...)
 	}
 	cmd.Dir = work
-	env, err := binary.proxied(ctx, cleanClaudeEnv(os.Environ()))
+	env, err := binary.proxied(ctx, cleanClaudeEnv(plugin.ManagedEnvironment(os.Environ())))
 	if err != nil {
 		cleanup()
 		return nil, nil, err
@@ -4800,7 +4816,24 @@ func (b *subscriptionBridge) whyCallsLost(req *Request) string {
 	return ""
 }
 
-func (s *Server) serveClaudeSubscription(w http.ResponseWriter, r *http.Request, from provider.Protocol, p provider.Provider, model string, body []byte, usage *Usage) (int, string) {
+func (s *Server) serveClaudeSubscription(w http.ResponseWriter, r *http.Request, from provider.Protocol, p provider.Provider, model string, body []byte, usage *Usage) (status int, reason string) {
+	if managedstate.Enabled() {
+		var payload map[string]json.RawMessage
+		_ = json.Unmarshal(body, &payload)
+		if payload == nil {
+			payload = map[string]json.RawMessage{}
+		}
+		payload["model"], _ = json.Marshal(model)
+		raw, _ := json.Marshal(payload)
+		finish, err := managedstate.Admit(r.Context(), p.ID, raw)
+		if err != nil {
+			return http.StatusForbidden, "model attempt admission denied"
+		}
+		defer func() {
+			raw, _ := json.Marshal(map[string]int{"input_tokens": usage.Input, "output_tokens": usage.Output, "cache_read_input_tokens": usage.CacheRead, "cache_creation_input_tokens": usage.CacheWrite})
+			finish(status, raw, r.Context().Err())
+		}()
+	}
 	defer s.bridgeTurn()()
 	owner := p.ID
 	if p.Account != nil {
@@ -5249,4 +5282,29 @@ func bridgeTools(req *Request) []bridgeTool {
 		tools = append(tools, bridgeTool{Name: bridgeToolName(t.Name), Description: t.Description, InputSchema: schema})
 	}
 	return tools
+}
+
+// CloseManaged stops CLI sessions owned by the embedded gateway only.
+func (s *Server) CloseManaged() {
+	if managedstate.Enabled() {
+		s.subscription.abortAll()
+	}
+}
+
+func (b *subscriptionBridge) callbackBase() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.baseURL != "" {
+		return b.baseURL
+	}
+	return callbackBaseURL()
+}
+
+// SetManagedCallbackURL binds the existing private MCP callback to this core's listener.
+func (s *Server) SetManagedCallbackURL(base string) {
+	if managedstate.Enabled() {
+		s.subscription.mu.Lock()
+		s.subscription.baseURL = base
+		s.subscription.mu.Unlock()
+	}
 }

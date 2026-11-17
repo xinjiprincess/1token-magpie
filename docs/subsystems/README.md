@@ -14,6 +14,8 @@ These pages describe current responsibilities, runtime paths, state, and contrac
 | Gateway Session Aggregation | [Gateway Session Aggregation](gateway-sessions.md) |
 | Connecting an agent's config to the gateway, drift, disconnect, WSL twins | [Agent wiring](agent-wiring.md) |
 | Providers, keys, subscription accounts, refresh and allowance | [Providers and accounts](providers-accounts.md) |
+| Owner-bound gateway embedding, parent vault and inference admission | [Managed model core](managed-model-core.md) |
+| Selective model export, encrypted files, and transfer to Xfriend | [Model transfer](model-transfer.md) |
 | Instructions, MCP servers, skills and RTK written into agents | [Library](library.md) |
 | One MCP server, magpie, given to every agent in place of the Library's servers | [MCP router](mcp-router.md) |
 | Tray, panel, window, `magpie web` and the page's JSON API | [GUI app shell](gui-shell.md) |

@@ -36,6 +36,7 @@
 package appdir
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -52,6 +53,29 @@ const (
 	// files then going into a data folder made beside it.
 	MarkerName = ".portable"
 )
+
+var managed struct {
+	sync.RWMutex
+	config string
+	cache  string
+}
+
+// ConfigureManaged isolates the embedded model core without changing HOME or
+// any of the external clients' paths. It is set once, before the core starts.
+func ConfigureManaged(config, cache string) error {
+	if !filepath.IsAbs(config) || !filepath.IsAbs(cache) {
+		return fmt.Errorf("managed directories must be absolute")
+	}
+	managed.Lock()
+	defer managed.Unlock()
+	if managed.config != "" {
+		return fmt.Errorf("managed directories already configured")
+	}
+	managed.config, managed.cache = filepath.Clean(config), filepath.Clean(cache)
+	return nil
+}
+
+func Managed() bool { managed.RLock(); defer managed.RUnlock(); return managed.config != "" }
 
 var (
 	once     sync.Once
@@ -224,6 +248,12 @@ func absolute(p string) string {
 // Config is the folder magpie keeps its settings, providers, usage and the
 // rest of its own state in.
 func Config() string {
+	managed.RLock()
+	config := managed.config
+	managed.RUnlock()
+	if config != "" {
+		return config
+	}
 	if p := Portable(); p != "" {
 		return p
 	}
@@ -240,6 +270,9 @@ func Config() string {
 // is portable. A magpie run in such a shell sees none of what the app's
 // window shows.
 func Redirected() string {
+	if Managed() {
+		return ""
+	}
 	if Portable() != "" || os.Getenv("XDG_CONFIG_HOME") == "" {
 		return ""
 	}
@@ -256,6 +289,12 @@ func Redirected() string {
 // Cache is the folder for what magpie can fetch again (the models.dev
 // catalog, exchange rates, market lists).
 func Cache() string {
+	managed.RLock()
+	cache := managed.cache
+	managed.RUnlock()
+	if cache != "" {
+		return cache
+	}
 	if p := Portable(); p != "" {
 		return filepath.Join(p, "cache")
 	}

@@ -32,6 +32,7 @@ import (
 	"github.com/yetone/magpie/internal/settings"
 	"github.com/yetone/magpie/internal/tui"
 	"github.com/yetone/magpie/internal/update"
+	"github.com/yetone/magpie/pkg/modeltransfer"
 )
 
 // version is the root main package's, set at build time
@@ -160,6 +161,7 @@ const usage = `magpie — one place to pick every agent's model
   magpie update auto [on|off] [download|notify] [30m|1h|6h|24h]
                                   whether the app looks for updates by itself, how often (6h), and whether
                                   it downloads one at once or only says it is out (notify: for metered networks)
+  magpie model-transfer --stdio   model-only Xfriend transfer protocol (no client configuration changes)
   magpie licenses                 the third-party notices of what magpie is built with
 
 agents: claude (cc), codex, gemini, opencode (oc), mimocode, deveco, pi, goose, cursor, zed, copilot, crush, aside
@@ -274,6 +276,13 @@ var startUp = func() {
 }
 
 func run(args []string) error {
+	// Explicit model-only export must precede startUp and catalog/client sync.
+	if len(args) > 0 && args[0] == "model-transfer" {
+		if len(args) != 2 || args[1] != "--stdio" {
+			return fmt.Errorf("usage: magpie model-transfer --stdio")
+		}
+		return modeltransfer.Serve(os.Stdin, os.Stdout, version)
+	}
 	// a command that saved a provider or a group ends with the agents'
 	// files written, which its save no longer waits for; and a test's run
 	// leaves catalog.Changed as it found it

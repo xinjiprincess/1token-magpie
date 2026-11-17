@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/yetone/magpie/internal/appdir"
 	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/filememo"
 	"github.com/yetone/magpie/internal/settings"
@@ -144,6 +145,10 @@ func claudeCodeFiles() []string {
 // from its saved directory or Claude Code's own sign-in, whichever
 // Anthropic answered last, as that file's account is the user's.
 func claudeModelsOf(user string) (claudeCodeModels, bool) {
+	if appdir.Managed() {
+		return claudeCodeModels{}, false
+	}
+
 	var best claudeCodeModels
 	found := false
 	take := func(m claudeCodeModels) {

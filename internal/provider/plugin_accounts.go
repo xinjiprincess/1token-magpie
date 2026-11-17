@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yetone/magpie/internal/appdir"
 	"github.com/yetone/magpie/internal/plugin"
 	"github.com/yetone/magpie/internal/settings"
 )
@@ -111,6 +112,9 @@ func pluginNames(pp plugin.Provider) map[string]string {
 // and names them as the agent is signed in now, where that can be read.
 func pluginOwnNames(pp plugin.Provider) (own map[string]bool, named map[string]string) {
 	own, named = map[string]bool{}, map[string]string{}
+	if appdir.Managed() {
+		return own, named
+	}
 	listed := map[string]bool{}
 	for _, a := range pp.Accounts {
 		listed[a.Key] = true
@@ -207,6 +211,9 @@ var pluginOwnUser = func(id string) string {
 // own account is named as the agent is signed in now; removed in magpie,
 // it is only hidden, and shows again once the agent signs in anew.
 func pluginLogins(pp plugin.Provider) []pluginLogin {
+	if appdir.Managed() {
+		return publicLogins(pp)
+	}
 	if settings.AccountDiscoveryOff() {
 		if publicPlugin(pp) {
 			return publicLogins(pp)

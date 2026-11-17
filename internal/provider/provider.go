@@ -10,11 +10,13 @@ package provider
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -29,6 +31,7 @@ import (
 	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/filememo"
 	"github.com/yetone/magpie/internal/lastgood"
+	"github.com/yetone/magpie/internal/managedstate"
 	"github.com/yetone/magpie/internal/settings"
 	"github.com/yetone/magpie/internal/steady"
 )
@@ -581,6 +584,9 @@ func load() file {
 // magpie's 33 GB in 53 minutes. What it returns is shared: the caller
 // must not change it, nor a list or map in it.
 func storedFile() file {
+	if managedstate.Enabled() {
+		return load()
+	}
 	f, err := filememo.Read("providers", Path(), parseProviders)
 	if err != nil {
 		// missing, or a file that doesn't decode: read's own way, its
@@ -615,7 +621,13 @@ func (e *unreadableError) Unwrap() []error { return []error{ErrUnreadable, e.err
 // catalog to write over. Only a missing file is a first use.
 func read() (file, error) {
 	var f file
-	b, err := steady.ReadFile(Path())
+	var b []byte
+	var err error
+	if managedstate.Enabled() {
+		b, err = managedstate.Read("providers")
+	} else {
+		b, err = steady.ReadFile(Path())
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		return f, nil
 	}
@@ -694,6 +706,13 @@ func store(f file) error {
 	b, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return err
+	}
+	if managedstate.Enabled() {
+		if err := managedstate.Write("providers", append(b, '\n')); err != nil {
+			return err
+		}
+		catalog.Touched()
+		return nil
 	}
 	if err := lastgood.Keep(p, validProviders, 0o600); err != nil {
 		return err
@@ -810,6 +829,9 @@ func ownOf(f file) (own []Provider, picks map[string]Provider) {
 		if !hasEndpoint(p) {
 			picks[p.ID] = p
 			continue
+		}
+		if managedstate.Enabled() && p.Preset == "xfriend-native" {
+			p.Account = &Account{Agent: "xfriend", User: p.ID, Stream: true, sign: func(context.Context, *http.Request, []byte) error { return nil }, transport: func(req *http.Request) (*http.Response, error) { return managedstate.Invoke(req.Context(), p.ID, req) }}
 		}
 		own = append(own, p)
 	}

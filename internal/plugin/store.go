@@ -170,30 +170,36 @@ var pluginsList struct {
 // list is plugins.json, read now. What it gives is shared and must not be
 // changed; Load gives the mutable copy.
 func list() List {
+	if list, managed := managedList(); managed {
+		return list
+	}
 	path := listPath()
 	// one a crash left all zero (#1505) is its last good generation: the
 	// plugins installed are unknown, never none
 	b, err := lastgood.Read(path, lastgood.JSON)
 	if err != nil {
 		// Do not cache read failures; a later call will read the file again.
-		return List{}
+		return mergedBundledPlugins(List{}, bundledRuntime())
 	}
 	pluginsList.Lock()
 	defer pluginsList.Unlock()
 	if pluginsList.path == path && bytes.Equal(pluginsList.raw, b) {
-		return pluginsList.list
+		return mergedBundledPlugins(pluginsList.list, bundledRuntime())
 	}
 	var l List
 	// Preserve partially decoded values on type errors, as Load has always done.
 	_ = json.Unmarshal(b, &l)
 	pluginsList.path, pluginsList.raw, pluginsList.list = path, b, l
-	return l
+	return mergedBundledPlugins(l, bundledRuntime())
 }
 
 // Load reads plugins.json. What it gives is the caller's to change at every
 // level: the mutators (Add, Remove, SetOff, SetConfig) each get their own
 // copy, so nothing they change reaches what list keeps.
 func Load() List {
+	if list, managed := managedList(); managed {
+		return list
+	}
 	l := list()
 	return List{Plugins: clonePlugins(l.Plugins), Config: cloneMap(l.Config), Prefer: maps.Clone(l.Prefer)}
 }
@@ -301,6 +307,9 @@ var hostStale atomic.Bool
 // started again with the plugins as they are, and the providers the other
 // magpie last saw asked for are the ones known meanwhile.
 func checkList() {
+	if _, managed := managedList(); managed {
+		return
+	}
 	st := listStamp()
 	listSeen.Lock()
 	moved := listSeen.set && listSeen.stamp != st
@@ -389,7 +398,13 @@ func Target(spec string) string {
 		}
 		return p
 	}
-	return filepath.Join(Dir(), "node_modules", filepath.FromSlash(Name(spec)))
+	target := filepath.Join(Dir(), "node_modules", filepath.FromSlash(Name(spec)))
+	if _, err := os.Stat(target); err != nil {
+		if bundled := bundledTarget(spec); bundled != "" {
+			return bundled
+		}
+	}
+	return target
 }
 
 // Add installs a plugin and adds it to the list, in place of one of the
@@ -559,6 +574,9 @@ func notPlugin(target string) error {
 func Update(ctx context.Context) error {
 	var errs []error
 	for _, e := range Load().Plugins {
+		if bundledInUse(e.Spec) {
+			continue
+		}
 		if !IsPath(e.Spec) {
 			v := ""
 			if !IsGit(e.Spec) {
@@ -612,6 +630,15 @@ func Remove(ctx context.Context, name string) error {
 		return fmt.Errorf("no plugin %q", name)
 	}
 	e := l.Plugins[i]
+	if bundledInUse(e.Spec) {
+		l.Plugins[i].Off = true
+		err := save(l)
+		listMu.Unlock()
+		if err == nil {
+			Restart()
+		}
+		return err
+	}
 	l.Plugins = slices.Delete(l.Plugins, i, i+1)
 	maps.DeleteFunc(l.Prefer, func(_, s string) bool { return s == e.Spec })
 	err := save(l)
